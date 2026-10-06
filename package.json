@@ -1,0 +1,11 @@
+{
+  "name": "agentsuper",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0"
+  },
+  "scripts": {
+    "test": "node tests/auth.test.mjs && node tests/google.test.mjs && node tests/discord.test.mjs && node tests/youtube.test.mjs && node tests/chat.test.mjs && node tests/ai.test.mjs"
+  }
+}

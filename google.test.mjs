@@ -1,0 +1,23 @@
+import { generateKeyPairSync, sign } from "node:crypto";
+import { verifyGoogleToken, resetCache } from "../netlify/functions/lib/google.mjs";
+let fails = 0; const t = (n, c) => { console.log((c ? "OK   " : "FAIL ") + n); if (!c) fails++; };
+const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+const jwk = { ...publicKey.export({ format: "jwk" }), kid: "k1", alg: "RS256", use: "sig" };
+const fetchFn = async () => ({ ok: true, json: async () => ({ keys: [jwk] }) });
+const NOW = 1_700_000_000_000, CID = "client-123";
+const enc = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+const make = (pay, kid = "k1") => { const h = enc({ alg: "RS256", kid }), p = enc(pay); return h + "." + p + "." + sign("RSA-SHA256", Buffer.from(h + "." + p), privateKey).toString("base64url"); };
+const base = { iss: "https://accounts.google.com", aud: CID, sub: "1", email: "A@B.de", email_verified: true, name: "Anna", exp: NOW / 1000 + 3600 };
+const bad = async (tok, reason) => { resetCache(); try { await verifyGoogleToken(tok, CID, { fetchFn, now: NOW }); return false; } catch (e) { return e.reason === reason; } };
+
+resetCache();
+const u = await verifyGoogleToken(make(base), CID, { fetchFn, now: NOW });
+t("Gültiges Token wird akzeptiert", u.email === "a@b.de" && u.name === "Anna");
+t("Falsche Client-ID wird abgelehnt", await bad(make({ ...base, aud: "x" }), "aud"));
+t("Abgelaufenes Token wird abgelehnt", await bad(make({ ...base, exp: NOW / 1000 - 1 }), "exp"));
+t("Falscher Aussteller wird abgelehnt", await bad(make({ ...base, iss: "evil.com" }), "iss"));
+t("Unbestätigte E-Mail wird abgelehnt", await bad(make({ ...base, email_verified: false }), "email"));
+t("Unbekannter Schlüssel wird abgelehnt", await bad(make(base, "zzz"), "kid"));
+t("Manipuliertes Token wird abgelehnt", await bad((() => { const [h, , sg] = make(base).split("."); return h + "." + enc({ ...base, email: "evil@x.de" }) + "." + sg; })(), "signature"));
+t("Kein Token wird abgelehnt", await bad("", "format"));
+process.exit(fails ? 1 : 0);
